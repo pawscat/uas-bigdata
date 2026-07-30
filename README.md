@@ -19,18 +19,16 @@ Dashboard ini dibuat untuk proyek analisis dataset **Student Alcohol Consumption
 
 4. Buka alamat yang muncul di terminal (umumnya `http://localhost:8501`).
 
-## Memakai data asli
+## Data asli sudah disertakan
 
-Dashboard dapat langsung dibuka dalam **mode demonstrasi** agar tampilannya dapat diperiksa. Namun, hasilnya hanya bersifat contoh karena memakai data sintetis.
+Tidak ada unggah CSV manual. ZIP ini sudah memuat dua file dataset asli pada folder `data`:
 
-Untuk memakai data penelitian yang sebenarnya, unggah kedua file berikut melalui sidebar dashboard:
+- `data/student-mat.csv` — 395 observasi
+- `data/student-por.csv` — 649 observasi
 
-- `student-mat.csv`
-- `student-por.csv`
+Karena itu dashboard bisa langsung dijalankan setelah ZIP diunggah/di-*clone* dari GitHub, tanpa koneksi internet dan tanpa mengunggah file apa pun.
 
-Alternatifnya, buat folder `data` di dalam folder dashboard lalu simpan kedua CSV tersebut di sana. Nama file harus sama persis.
-
-Dataset asli dapat diunduh dari Kaggle: https://www.kaggle.com/datasets/uciml/student-alcohol-consumption
+Jika suatu saat folder `data` tidak sengaja terhapus, aplikasi memiliki mekanisme cadangan untuk mengunduh dataset publik dari Kaggle, lalu dari sumber asli UCI Machine Learning Repository.
 
 ## Catatan metodologis
 

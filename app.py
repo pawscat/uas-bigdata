@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import Request, urlopen
+from zipfile import BadZipFile, ZipFile
 
 import numpy as np
 import pandas as pd
@@ -28,6 +31,8 @@ st.markdown(
       .block-container {padding-top: 1.7rem; padding-bottom: 2rem;}
       [data-testid="stMetric"] {background:#ffffff; border:1px solid #e5e7eb;
         padding:15px; border-radius:14px; box-shadow:0 2px 8px rgba(15,23,42,.05);}
+      [data-testid="stMetricLabel"], [data-testid="stMetricValue"],
+      [data-testid="stMetricDelta"] {color:#0f172a !important;}
       .small-note {color:#64748b; font-size:.86rem;}
     </style>
     """,
@@ -37,93 +42,50 @@ st.markdown(
 DATA_DIR = Path(__file__).parent / "data"
 SUBJECT_COL = "Mata Pelajaran"
 SUBJECTS = {"Matematika": "student-mat.csv", "Bahasa Portugis": "student-por.csv"}
+DATA_SOURCES = [
+    ("Kaggle", "https://www.kaggle.com/api/v1/datasets/download/uciml/student-alcohol-consumption"),
+    ("UCI Machine Learning Repository", "https://archive.ics.uci.edu/static/public/320/student+performance.zip"),
+]
+
+def read_dataset(local_path: Path) -> pd.DataFrame:
+    """Membaca CSV UCI/Kaggle dengan pemisah titik koma atau koma secara otomatis."""
+    return pd.read_csv(local_path, sep=None, engine="python")
 
 
-def make_demo_data(subject: str, n: int, seed: int) -> pd.DataFrame:
-    """Data demonstrasi agar dashboard tetap tampil sebelum CSV asli diunggah."""
-    rng = np.random.default_rng(seed)
-    age = rng.integers(15, 22, n)
-    g1 = np.clip(np.rint(rng.normal(11.2 if subject == "Matematika" else 12.0, 3.0, n)), 0, 20).astype(int)
-    failures = rng.choice([0, 1, 2, 3], size=n, p=[0.70, 0.18, 0.08, 0.04])
-    study = rng.integers(1, 5, n)
-    dalc = rng.integers(1, 6, n)
-    walc = np.maximum(dalc, rng.integers(1, 6, n))
-    noise = rng.normal(0, 2.4, n)
-    g3 = np.clip(np.rint(2.1 + 0.95 * g1 - 1.15 * failures + 0.35 * study - 0.25 * dalc + noise), 0, 20).astype(int)
-    g2 = np.clip(np.rint(g3 + rng.normal(0, 1.6, n)), 0, 20).astype(int)
-    return pd.DataFrame(
-        {
-            "school": rng.choice(["GP", "MS"], n, p=[0.87, 0.13]),
-            "sex": rng.choice(["F", "M"], n),
-            "age": age,
-            "address": rng.choice(["U", "R"], n, p=[0.78, 0.22]),
-            "famsize": rng.choice(["LE3", "GT3"], n, p=[0.28, 0.72]),
-            "Pstatus": rng.choice(["T", "A"], n, p=[0.90, 0.10]),
-            "Medu": rng.integers(0, 5, n),
-            "Fedu": rng.integers(0, 5, n),
-            "traveltime": rng.integers(1, 5, n),
-            "studytime": study,
-            "failures": failures,
-            "schoolsup": rng.choice(["yes", "no"], n, p=[0.13, 0.87]),
-            "famsup": rng.choice(["yes", "no"], n, p=[0.61, 0.39]),
-            "paid": rng.choice(["yes", "no"], n, p=[0.40, 0.60]),
-            "activities": rng.choice(["yes", "no"], n),
-            "higher": rng.choice(["yes", "no"], n, p=[0.88, 0.12]),
-            "internet": rng.choice(["yes", "no"], n, p=[0.82, 0.18]),
-            "romantic": rng.choice(["yes", "no"], n, p=[0.34, 0.66]),
-            "famrel": rng.integers(1, 6, n),
-            "freetime": rng.integers(1, 6, n),
-            "goout": rng.integers(1, 6, n),
-            "Dalc": dalc,
-            "Walc": walc,
-            "health": rng.integers(1, 6, n),
-            "absences": rng.poisson(5, n),
-            "G1": g1,
-            "G2": g2,
-            "G3": g3,
-        }
-    )
+def download_dataset() -> str:
+    """Unduh sekali dari Kaggle publik; UCI dipakai sebagai cadangan bila diperlukan."""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    errors = []
+    for source_name, url in DATA_SOURCES:
+        try:
+            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urlopen(request, timeout=35) as response:
+                archive_bytes = response.read()
+            with ZipFile(BytesIO(archive_bytes)) as archive:
+                members = {Path(name).name: name for name in archive.namelist()}
+                if not all(filename in members for filename in SUBJECTS.values()):
+                    raise ValueError("Arsip tidak memuat student-mat.csv dan student-por.csv.")
+                for filename in SUBJECTS.values():
+                    (DATA_DIR / filename).write_bytes(archive.read(members[filename]))
+            return source_name
+        except (URLError, TimeoutError, BadZipFile, OSError, ValueError) as exc:
+            errors.append(f"{source_name}: {exc}")
+    raise RuntimeError("Dataset tidak dapat diunduh otomatis. " + " | ".join(errors))
 
 
 @st.cache_data(show_spinner=False)
-def demo_data() -> pd.DataFrame:
-    frames = []
-    for subject, n, seed in [("Matematika", 395, 42), ("Bahasa Portugis", 649, 99)]:
-        frame = make_demo_data(subject, n, seed)
-        frame[SUBJECT_COL] = subject
-        frames.append(frame)
-    return pd.concat(frames, ignore_index=True)
-
-
-def read_dataset(uploaded_file=None, local_path: Path | None = None) -> pd.DataFrame:
-    """Membaca CSV UCI/Kaggle dengan pemisah titik koma atau koma secara otomatis."""
-    source = BytesIO(uploaded_file.getvalue()) if uploaded_file is not None else local_path
-    return pd.read_csv(source, sep=None, engine="python")
-
-
-def load_data(mat_upload, por_upload) -> tuple[pd.DataFrame, str]:
-    """Prioritas: unggahan dashboard -> folder data -> mode demonstrasi."""
-    try:
-        if mat_upload is not None and por_upload is not None:
-            mat = read_dataset(uploaded_file=mat_upload)
-            por = read_dataset(uploaded_file=por_upload)
-            source = "Dataset asli dari unggahan"
-        elif (DATA_DIR / SUBJECTS["Matematika"]).exists() and (DATA_DIR / SUBJECTS["Bahasa Portugis"]).exists():
-            mat = read_dataset(local_path=DATA_DIR / SUBJECTS["Matematika"])
-            por = read_dataset(local_path=DATA_DIR / SUBJECTS["Bahasa Portugis"])
-            source = "Dataset asli dari folder data"
-        else:
-            return demo_data().copy(), "Mode demonstrasi (data sintetis)"
-
-        mat[SUBJECT_COL] = "Matematika"
-        por[SUBJECT_COL] = "Bahasa Portugis"
-        data = pd.concat([mat, por], ignore_index=True, sort=False)
-        if "G3" not in data.columns:
-            raise ValueError("Kolom G3 tidak ditemukan pada file CSV.")
-        return data, source
-    except Exception as exc:
-        st.sidebar.error(f"CSV tidak dapat dibaca: {exc}")
-        return demo_data().copy(), "Mode demonstrasi karena pembacaan CSV gagal"
+def load_data() -> tuple[pd.DataFrame, str]:
+    """Gunakan cache lokal; jika belum ada, unduh otomatis lalu simpan ke folder data."""
+    local_files_exist = all((DATA_DIR / filename).exists() for filename in SUBJECTS.values())
+    source = "Cache lokal" if local_files_exist else f"Unduhan otomatis dari {download_dataset()}"
+    mat = read_dataset(DATA_DIR / SUBJECTS["Matematika"])
+    por = read_dataset(DATA_DIR / SUBJECTS["Bahasa Portugis"])
+    mat[SUBJECT_COL] = "Matematika"
+    por[SUBJECT_COL] = "Bahasa Portugis"
+    data = pd.concat([mat, por], ignore_index=True, sort=False)
+    if "G3" not in data.columns:
+        raise ValueError("Kolom G3 tidak ditemukan pada dataset.")
+    return data, source
 
 
 def subject_label(value: object) -> str:
@@ -174,8 +136,6 @@ def grade_chart(data: pd.DataFrame):
 
 def render_overview(data: pd.DataFrame, source: str):
     st.caption(f"Sumber saat ini: **{source}**")
-    if source.startswith("Mode demonstrasi"):
-        st.warning("Dashboard tampil dengan data sintetis. Unggah dua CSV asli pada sidebar untuk hasil analisis yang valid.")
     total = len(data)
     avg_g3 = data["G3"].mean()
     pass_rate = (data["G3"] >= 10).mean() * 100
@@ -256,7 +216,7 @@ def render_eda(data: pd.DataFrame):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_model(data: pd.DataFrame, source: str):
+def render_model(data: pd.DataFrame):
     available_subjects = data[SUBJECT_COL].dropna().unique().tolist()
     model_subject = st.selectbox("Dataset untuk pemodelan", available_subjects, key="model_subject")
     subset = data[data[SUBJECT_COL] == model_subject].copy()
@@ -323,14 +283,19 @@ def main():
     st.title("📚 Dashboard Analisis Performa Akademik Siswa")
     st.write("Eksplorasi data, evaluasi model regresi, dan prediksi nilai akhir menggunakan dataset *Student Alcohol Consumption*.")
     with st.sidebar:
-        st.header("Sumber data")
-        st.caption("Unggah kedua file agar dashboard menggunakan data asli.")
-        mat_upload = st.file_uploader("student-mat.csv", type=["csv"], key="mat")
-        por_upload = st.file_uploader("student-por.csv", type=["csv"], key="por")
+        st.header("Status data")
+    try:
+        with st.spinner("Menyiapkan dataset asli..."):
+            data, source = load_data()
+    except (RuntimeError, ValueError) as exc:
+        st.error(f"Dashboard tidak dapat mengambil dataset: {exc}")
+        st.info("Pastikan perangkat terhubung ke internet, lalu muat ulang halaman. Setelah berhasil sekali, data akan dibaca dari cache lokal.")
+        st.stop()
+    with st.sidebar:
+        st.success("Dataset asli siap digunakan")
+        st.caption("Data diambil otomatis sekali dari Kaggle publik dan disimpan ke cache lokal. Jalankan ulang berikutnya tidak perlu mengunduh maupun mengunggah file.")
         st.divider()
         st.header("Filter")
-    data, source = load_data(mat_upload, por_upload)
-    with st.sidebar:
         subject = st.selectbox("Mata pelajaran", ["Semua"] + data[SUBJECT_COL].dropna().unique().tolist())
         grade_range = st.slider("Rentang nilai akhir (G3)", 0, 20, (0, 20))
         st.divider()
@@ -349,7 +314,7 @@ def main():
     with tab_eda:
         render_eda(filtered)
     with tab_model:
-        render_model(filtered, source)
+        render_model(filtered)
     with tab_data:
         render_data(filtered)
 
