@@ -299,7 +299,7 @@ def main():
         subject = st.selectbox("Mata pelajaran", ["Semua"] + data[SUBJECT_COL].dropna().unique().tolist())
         grade_range = st.slider("Rentang nilai akhir (G3)", 0, 20, (0, 20))
         st.divider()
-        st.caption("Sumber asli: UCI Machine Learning Repository; diakses melalui Kaggle. Data tidak diperoleh melalui web scraping.")
+        st.caption("Sumber asli: UCI Machine Learning Repository; diakses melalui Kaggle.")
 
     filtered = data[data["G3"].between(*grade_range)].copy()
     if subject != "Semua":
